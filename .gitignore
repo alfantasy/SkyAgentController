@@ -32,6 +32,10 @@ data_files.txt
 *.manifest 
 *.spec 
 
+# Database
+*.db
+*.db-wal
+
 # Installer logs 
 pip-log.txt 
 pip-delete-this-directory.txt 
