@@ -2,14 +2,20 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 
 from modules.auth import verify_access
+from config import system
 
 import base64, io, mss, psutil, time, platform
 from PIL import Image
+
+import subprocess
+import shlex
 
 router = APIRouter(
     prefix='/api/utils',
     tags=['Utils']
 )
+
+ALLOWED_COMMANDS = ["dir", "ls", "ping", "netstat", "ipconfig", "ifconfig", "systeminfo", "whoami"]
 
 class ScreenshotRequest(BaseModel):
     monitor_id: int = 1
@@ -21,16 +27,7 @@ async def ping_to_device():
 @router.get("/monitors")
 async def get_monitors(token: str = Depends(verify_access)):
     try:
-        with mss.mss() as sct:
-            monitors = []
-            for i, m in enumerate(sct.monitors[1:], 1):
-                monitors.append({
-                    "id": i,
-                    "width": m["width"],
-                    "height": m["height"],
-                    "name": f"Monitor {i} ({m['width']}x{m['height']})",
-                })
-            return {"status": "OK", "monitors": monitors}
+        return {"status": "OK", "monitors": system.get_monitors()}
     except Exception as e:
         return {"status": "ERROR", "message": str(e)}
 
@@ -41,22 +38,7 @@ async def make_an_screenshot(
     token: str = Depends(verify_access) # Токен будет проверяться из Query параметров
 ):
     try:
-        with mss.mss() as sct:
-            if monitor_id >= len(sct.monitors):
-                raise HTTPException(status_code=404, detail="Monitor not found")
-            
-            monitor = sct.monitors[monitor_id]
-            sct_img = sct.grab(monitor)
-            
-            # Конвертируем в PIL
-            img = Image.frombytes("RGB", sct_img.size, sct_img.rgb)
-            
-            # Оптимизируем: сохраняем в JPEG с выбранным качеством для скорости
-            buffered = io.BytesIO()
-            img.save(buffered, format="JPEG", quality=quality)
-            
-            # Возвращаем байты напрямую с правильным media_type
-            return Response(content=buffered.getvalue(), media_type="image/jpeg")
+        return system.screenshot_reject(monitor_id, quality)
             
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -72,25 +54,35 @@ async def get_sys_info(token: str = Depends(verify_access)):
         hours, remainder = divmod(int(uptime_seconds), 3600)
         minutes, seconds = divmod(remainder, 60)
 
-        data = {
-            "cpu": {
-                "model": platform.processor(),
-                "usage": psutil.cpu_percent(interval=1),
-                "cores": psutil.cpu_count(logical=True),
-                "freq": f"{psutil.cpu_freq().current:.0f}MHz" if psutil.cpu_freq() else "N/A"
-            },
-            "ram": {
-                "total": f"{ram.total / (1024**3):.1f}GB",
-                "used": f"{ram.used / (1024**3):.1f}GB",
-                "percent": ram.percent
-            },
-            "os": {
-                "name": platform.system(),
-                "release": platform.version(),
-                "arch": platform.machine(),
-                "uptime": f"{hours}h {minutes}m"
-            }
-        }
-        return {"status": "OK", "data": data}
+        info_system_reject = system.info_system(hours, minutes)
+        return {"status": "OK", "data": info_system_reject}
     except Exception as e:
         return {"status": "ERROR", "message": str(e)}
+    
+@router.post("/terminal")
+async def execute_command(command: str, token: str = Depends(verify_access)):
+    # 1. Простая фильтрация
+    base_cmd = command.split()[0].lower()
+    if base_cmd not in ALLOWED_COMMANDS:
+        return {"status": "ERROR", "message": f"Команда '{base_cmd}' запрещена службой безопасности."}
+
+    try:
+        # 2. Выполнение (ограничение 10 секунд)
+        # shell=True нужен для встроенных команд Windows (типа dir), но будь осторожен
+        process = subprocess.run(
+            command, 
+            shell=True, 
+            capture_output=True, 
+            text=True, 
+            timeout=10,
+            encoding='cp866' # Для корректного отображения кириллицы в консоли Windows
+        )
+        
+        return {
+            "status": "OK", 
+            "output": process.stdout if process.returncode == 0 else process.stderr
+        }
+    except subprocess.TimeoutExpired:
+        return {"status": "ERROR", "message": "Превышено время ожидания (Timeout)"}
+    except Exception as e:
+        return {"status": "ERROR", "message": str(e)}    
