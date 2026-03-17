@@ -20,15 +20,16 @@ router = APIRouter(
 async def register(request: Request):
     new_token = secrets.token_hex(8)
     print(f"""
-            ===== Внимание! =====
+            ===== Attention! =====
           
-    [I] Обнаружен сигнал, отправленный на данного агента посредством клиентского приложения.
-    [+] Новый токен: {new_token}
-    [D] IP-адрес агента: {request.client.host}
+    [I] Find signals from Sky Client Agents.
+    [+] New Token: {new_token}
+    [D] IP-address agent: {request.client.host}
     
-    [I] Токен нужно вставить в специальное поле внутри клиентского приложения Sky Client Agents.
-    [I] Если данное действие было отправлено не Вами, проигнорируйте и проверьте безопасность сервера.
-            ===== Внимание! =====
+    [I] You need to copy the token into a special field within the client application Sky Client Agents.
+    [I] But, if you application not Sky Client Agent, use SkyManager.
+    [I] If this action was sent to you, ignore and check the safety of the server.
+            ===== Attention! =====
     """)
     db.add_new_temp_reg(token=new_token, ip=request.client.host)
     
@@ -37,9 +38,8 @@ async def register(request: Request):
     return {"status": "OK", "hashed_token": hashed_token}
 
 @router.post("/register")
-async def register(request: Request, token: str = Form(...)):
-    token = hash_token(token)
-    if not verify_hash_token(token, token):
+async def register(request: Request, token: str = Form(...), client_hash: str = Form(...)):
+    if not verify_hash_token(token, client_hash):
         raise HTTPException(status_code=403, detail="Forbidden")
     result = db.register_user(token, request.client.host)
     return {"status": "OK", "answer": result}
@@ -48,3 +48,7 @@ async def register(request: Request, token: str = Form(...)):
 async def unregister(token: str = Depends(verify_access)):
     db.remove_user(token)
     return {"status": "OK", "message": "User has been removed."}
+
+@router.get("/is_register")
+async def is_register(token: str = Depends(verify_access)):
+    return {"status": "OK", "is_register": db.check_user(token)}

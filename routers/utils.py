@@ -20,6 +20,9 @@ ALLOWED_COMMANDS = ["dir", "ls", "ping", "netstat", "ipconfig", "ifconfig", "sys
 class ScreenshotRequest(BaseModel):
     monitor_id: int = 1
 
+class TerminalRequest(BaseModel):
+    command: str
+
 @router.get("/ping")
 async def ping_to_device():
     return {"status": "OK"}
@@ -59,9 +62,23 @@ async def get_sys_info(token: str = Depends(verify_access)):
     except Exception as e:
         return {"status": "ERROR", "message": str(e)}
     
+@router.get("/os_info")
+async def get_os_info(token: str = Depends(verify_access)):
+    """
+    Возвращает тип операционной системы узла.
+    Пример ответа: {"status": "OK", "os": "Windows"}
+    """
+    return {
+        "status": "OK", 
+        "os": platform.system(),
+        "release": platform.release(),
+        "version": platform.version()
+    }
+
 @router.post("/terminal")
-async def execute_command(command: str, token: str = Depends(verify_access)):
+async def execute_command(req: TerminalRequest, token: str = Depends(verify_access)):
     # 1. Простая фильтрация
+    command = req.command
     base_cmd = command.split()[0].lower()
     if base_cmd not in ALLOWED_COMMANDS:
         return {"status": "ERROR", "message": f"Команда '{base_cmd}' запрещена службой безопасности."}
