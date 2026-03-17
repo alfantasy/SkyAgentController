@@ -1,3 +1,5 @@
+import secrets
+import hashlib
 from fastapi import HTTPException, Header
 
 from config import db
@@ -10,3 +12,9 @@ async def verify_access(authorization: str = Header(None)):
     if not db.check_user(token):
         raise HTTPException(status_code=403, detail="Forbidden")
     return token
+
+def hash_token(token: str):
+    return hashlib.sha256(token.encode()).hexdigest()
+
+def verify_hash_token(token: str, hashed_token: str):
+    return token == hashlib.sha256(hashed_token.encode()).hexdigest()

@@ -9,7 +9,7 @@ import secrets
 
 ## Импортирование самописных модулей ##
 from config import db
-from modules.auth import verify_access
+from modules.auth import verify_access, hash_token, verify_hash_token
 
 router = APIRouter(
     prefix='/api/auth',
@@ -31,9 +31,16 @@ async def register(request: Request):
             ===== Внимание! =====
     """)
     db.add_new_temp_reg(token=new_token, ip=request.client.host)
+    
+    # Шифровка токена.
+    hashed_token = hash_token(new_token)
+    return {"status": "OK", "hashed_token": hashed_token}
 
 @router.post("/register")
 async def register(request: Request, token: str = Form(...)):
+    token = hash_token(token)
+    if not verify_hash_token(token, token):
+        raise HTTPException(status_code=403, detail="Forbidden")
     result = db.register_user(token, request.client.host)
     return {"status": "OK", "answer": result}
 

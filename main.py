@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import uvicorn
 
 from routers import auth, utils, files, python_executor
 
@@ -13,7 +14,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/status")
+def status():
+    return {"status": "active"}
+
 app.router.include_router(auth.router)
 app.router.include_router(utils.router)
 app.router.include_router(files.router)
 app.router.include_router(python_executor.router)
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=7901, reload=False)
