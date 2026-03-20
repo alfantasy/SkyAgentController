@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Body, Depends, HTTPException, Response
 from pydantic import BaseModel
 
 from modules.auth import verify_access
@@ -103,3 +103,12 @@ async def execute_command(req: TerminalRequest, token: str = Depends(verify_acce
         return {"status": "ERROR", "message": "Превышено время ожидания (Timeout)"}
     except Exception as e:
         return {"status": "ERROR", "message": str(e)}    
+
+@router.get("/process/list")
+async def get_processes(token: str = Depends(verify_access)):
+    return system.get_filtered_process_list()
+
+@router.post("/process/kill")
+async def kill_process(payload: dict = Body(...), token: str = Depends(verify_access)):
+    pid = payload.get("pid")
+    return system.kill_process(pid)
