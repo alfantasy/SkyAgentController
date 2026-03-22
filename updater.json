@@ -1,7 +1,15 @@
 {
-    "current_version": "0.1.1",
+    "current_version": "0.1.2",
     "name": "SC Standalone",
-    "older": {
-        "version": "0.1.1"
-    }
+    "changelog": "Обновление, связанное с реализацией configurate_update.py на замену конфигуратору архива.",
+    "older": [
+        {
+            "version": "0.1.0",
+            "changelog": "Первый выпуск. Базовый функционал."
+        },
+        {
+            "version": "0.1.1",
+            "changelog": "Почти полноценный готовый пакет SC режима standalone."
+        }
+    ]
 }

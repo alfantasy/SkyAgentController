@@ -50,12 +50,36 @@ def create_zip(zip_name, root_in_zip, items, extra_excludes):
                 arcname = os.path.join(root_in_zip, name)
                 zipf.write(name, arcname)
 
+def update_config_updater():
+    with open("updater.json", "r", encoding="utf-8") as f:
+        import json
+        data = json.load(f)
+
+    print(data)
+    current_version = data["current_version"]
+    choice = input("Обновить конфиг updater.json? (y/n): ").strip().lower()
+    if choice == 'y':
+        current_version_input = input("Введите новую версию: ").strip()
+        new_changelog = input("Введите новый changelog: ").strip()
+        data["older"].append(
+            {
+                "version": current_version,
+                "changelog": data["changelog"]
+            }
+        )
+        data["current_version"] = current_version_input
+        data["changelog"] = new_changelog
+        with open("updater.json", "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
+        print("✅ updater.json обновлен.")
+    else:
+        print("❌ updater.json не обновлен.")
+
 if __name__ == "__main__":
     # Список объектов из твоего ТЗ
     folders_and_file = [
         {"type": "folder", "name": "modules"},
         {"type": "folder", "name": "routers"},
-        {"type": "folder", "name": "saved_scripts"},
         {"type": "file", "name": "main.py"},
         {"type": "file", "name": "updater.json"},
         {"type": "file", "name": "requirements.txt"},
@@ -63,17 +87,25 @@ if __name__ == "__main__":
     ]
 
     # Получаем настройки от пользователя
-    name_zip, root_folder_name, user_excludes = get_interactive_config()
 
-    try:
-        if os.path.exists(name_zip):
-            print("❌ Архив с таким именем уже существует. Убираем.")
-            os.remove(name_zip)
-        create_zip(name_zip, root_folder_name, folders_and_file, user_excludes)
-        print(f"\n✅ Готово!")
-        print(f"Архив: {name_zip}")
-        print(f"Корневая папка внутри: {root_folder_name}/")
-        if user_excludes:
-            print(f"Исключены пользователем: {', '.join(user_excludes)}")
-    except Exception as e:
-        print(f"❌ Произошла ошибка: {e}")
+    choice_create_archive = input("Создать архив? (y/n): ").strip().lower()
+    if choice_create_archive != 'y':
+        print("❌ Архив не создан.")
+    elif choice_create_archive == 'y':
+        name_zip, root_folder_name, user_excludes = get_interactive_config()
+        try:
+            if os.path.exists(name_zip):
+                print("❌ Архив с таким именем уже существует. Убираем.")
+                os.remove(name_zip)
+            create_zip(name_zip, root_folder_name, folders_and_file, user_excludes)
+            print(f"\n✅ Готово!")
+            print(f"Архив: {name_zip}")
+            print(f"Корневая папка внутри: {root_folder_name}/")
+            if user_excludes:
+                print(f"Исключены пользователем: {', '.join(user_excludes)}")
+        except Exception as e:
+            print(f"❌ Произошла ошибка: {e}")        
+
+    update_config_updater()
+
+    print("\n✅ Работа конфигуратора обновлений завершена!")
