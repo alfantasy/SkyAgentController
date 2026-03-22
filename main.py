@@ -50,21 +50,21 @@ def kill_process_on_port(port):
                 if pid:
                     try:
                         proc = psutil.Process(pid)
-                        print(f"ПОРТ ЗАНЯТ: Процесс '{proc.name()}' (PID: {pid}) держит порт {port}.")
+                        print(f"PORT FOUND: Process '{proc.name()}' (PID: {pid}) is listening on port {port}.")
                         proc.terminate()
                         proc.wait(timeout=5)
                         found = True
                     except (psutil.NoSuchProcess, psutil.AccessDenied):
                         continue
     except psutil.AccessDenied:
-        print("Недостаточно прав для сканирования сетевых соединений.")
+        print("Access denied while accessing net_connections.")
 
     if not found:
         for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
             try:
                 cmd = proc.info.get('cmdline')
                 if cmd and any(f'port={port}' in arg for arg in cmd):
-                    print(f"АРГУМЕНТ НАЙДЕН: Убиваем процесс PID {proc.info['pid']} по cmdline.")
+                    print(f"Argument found: Killing process PID {proc.info['pid']} with cmdline.")
                     proc.terminate()
                     proc.wait(timeout=5)
                     found = True
@@ -84,7 +84,7 @@ if __name__ == "__main__":
     HOST = args.host
     PORT = args.port
 
-    print(f"Запускаем сервер на http://{HOST}:{PORT}")
+    print(f"Starting server on http://{HOST}:{PORT}")
 
     # Проверка на занятость порта
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -95,17 +95,17 @@ if __name__ == "__main__":
         test_host = "127.0.0.1" if HOST == "0.0.0.0" else HOST
         sock.bind((test_host, PORT))
         sock.close()
-        print(f"Порт {PORT} свободен.")
+        print(f"Port {PORT} is available.")
     except (socket.error, PermissionError):
-        print(f"Порт {PORT} занят или доступ запрещен.")
+        print(f"Port {PORT} is in use. Trying to find and kill the process...")
         sock.close()
 
-        print(f"Ищем виновника, занявшего порт {PORT}...")
+        print(f"Trying to kill process on port {PORT}...")
         if kill_process_on_port(PORT):
-            print("Виновник найден и убит. Пауза перед запуском...")
+            print("Process on port killed. Waiting 2 seconds...")
             time.sleep(2.0)
         else:
-            print("Не удалось найти конкретный процесс. Пробуем форсированный запуск...")
+            print("Process not found. Waiting 2 seconds...")
 
     # Запуск сервера через переменные HOST и PORT
     try:
