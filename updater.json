@@ -1,7 +1,7 @@
 {
-    "current_version": "0.1.2",
+    "current_version": "0.1.3",
     "name": "SC Standalone",
-    "changelog": "Обновление, связанное с реализацией configurate_update.py на замену конфигуратору архива.",
+    "changelog": "Реализация работоспособности с MasterHub. Связанность при помощи сохранения публичного и приватного ключей.",
     "older": [
         {
             "version": "0.1.0",
@@ -10,6 +10,10 @@
         {
             "version": "0.1.1",
             "changelog": "Почти полноценный готовый пакет SC режима standalone."
+        },
+        {
+            "version": "0.1.2",
+            "changelog": "Обновление, связанное с реализацией configurate_update.py на замену конфигуратору архива."
         }
     ]
 }
