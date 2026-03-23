@@ -1,8 +1,10 @@
-from fastapi import APIRouter, Body, Depends, HTTPException, Response
+import logging
+
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
 from modules.auth import verify_access
-from config import system
+from config import system, db
 
 import base64, io, mss, psutil, time, platform
 from PIL import Image
@@ -58,7 +60,7 @@ async def get_sys_info(token: str = Depends(verify_access)):
         minutes, seconds = divmod(remainder, 60)
 
         info_system_reject = system.info_system(hours, minutes)
-        return {"status": "OK", "data": info_system_reject}
+        return {"status": "OK", "data": info_system_reject, "who_ami": token}
     except Exception as e:
         return {"status": "ERROR", "message": str(e)}
     
@@ -112,3 +114,28 @@ async def get_processes(token: str = Depends(verify_access)):
 async def kill_process(payload: dict = Body(...), token: str = Depends(verify_access)):
     pid = payload.get("pid")
     return system.kill_process(pid)
+
+@router.post("/setup_master")
+async def setup_master(request: Request, payload: dict = Body(...)):
+    try:
+        client_host = request.client.host if request.client else "unknown"
+        if client_host not in ("127.0.0.1", "localhost", "::1"):
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        hub_pub_key = payload.get("hub_pub_key")
+        if not hub_pub_key:
+            raise HTTPException(status_code=400, detail="No key provided")
+
+        # Очищаем старое (теперь db.exec переварит это без параметров)
+        db.exec("DELETE FROM users WHERE ip = 'MASTER_HUB_CONFIG'")
+        
+        # Вставляем новое. Явно передаем кортеж.
+        db.exec(
+            "INSERT INTO users (token, ip) VALUES (?, ?)", 
+            (str(hub_pub_key), 'MASTER_HUB_CONFIG')
+        )
+        
+        return {"status": "OK", "message": "Linked"}
+    except Exception as e:
+        print(f"!!! CRASH: {e}") # Увидишь в консоли
+        raise HTTPException(status_code=500, detail=str(e))

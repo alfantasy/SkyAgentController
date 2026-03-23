@@ -30,7 +30,10 @@ class Database:
     def exec(self, sql: str, params: tuple = None) -> None:
         '#### Выполнение SQL-запроса.'
         cur = self.cur()
-        cur.execute(sql, params)
+        if params is not None:
+            cur.execute(sql, params)
+        else:
+            cur.execute(sql) # Вызываем без второго аргумента вообще
         self.sq.commit()
 
     def execmany(self, sql: str, params: tuple = None) -> None:

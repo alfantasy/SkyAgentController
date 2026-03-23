@@ -1,7 +1,7 @@
 # routers/auth.py
 
 ## Импортирование модулей FastAPI ##
-from fastapi import APIRouter, Form
+from fastapi import APIRouter, Body, Form
 from fastapi import Depends, HTTPException, Header, Request
 
 ## Импортирование остальных модулей ##

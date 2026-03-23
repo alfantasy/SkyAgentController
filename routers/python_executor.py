@@ -46,9 +46,14 @@ async def get_all_scripts(token: str = Depends(verify_access)):
 
 @router.post("/scripts/save")
 async def save_script(name: str = Form(...), code: str = Form(...), token: str = Depends(verify_access)):
-    path = os.path.join(SCRIPTS_DIR, os.path.basename(name if name.endswith(".py") else name + ".py"))
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(code)
+    filename = name if name.endswith(".py") else f"{name}.py"
+    path = os.path.join(SCRIPTS_DIR, os.path.basename(filename))
+
+    # Очистка кода от лишних кареток (/r), оставляя только корректные \n
+    clean_code = code.replace("\r\n", "\n").replace("\r", "\n")
+
+    with open(path, "w", encoding="utf-8", newline='\n') as f:
+        f.write(clean_code)
     return {"status": "OK"}
 
 @router.get("/scripts/load")
