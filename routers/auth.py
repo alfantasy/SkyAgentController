@@ -8,7 +8,7 @@ from fastapi import Depends, HTTPException, Header, Request
 import secrets
 
 ## Импортирование самописных модулей ##
-from config import db
+from config import db, logger
 from modules.auth import verify_access, hash_token, verify_hash_token
 
 router = APIRouter(
@@ -19,7 +19,7 @@ router = APIRouter(
 @router.get("/register")
 async def register(request: Request):
     new_token = secrets.token_hex(8)
-    print(f"""
+    logger.printinf(f"""
             ===== Attention! =====
           
     [I] Find signals from Sky Client Agents.

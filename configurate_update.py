@@ -55,7 +55,6 @@ def update_config_updater():
         import json
         data = json.load(f)
 
-    print(data)
     current_version = data["current_version"]
     choice = input("Обновить конфиг updater.json? (y/n): ").strip().lower()
     if choice == 'y':

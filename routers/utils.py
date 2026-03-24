@@ -4,7 +4,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
 from modules.auth import verify_access
-from config import system, db
+from config import system, db, logger
 
 import base64, io, mss, psutil, time, platform
 from PIL import Image
@@ -137,5 +137,5 @@ async def setup_master(request: Request, payload: dict = Body(...)):
         
         return {"status": "OK", "message": "Linked"}
     except Exception as e:
-        print(f"!!! CRASH: {e}") # Увидишь в консоли
+        logger.printerr(f"Error in setup_master: {e}")
         raise HTTPException(status_code=500, detail=str(e))

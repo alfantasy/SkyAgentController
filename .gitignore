@@ -81,6 +81,7 @@ target/
 # Унификация остаточных директорий
 output
 saved_scripts/
+logs/
 
 # Унификация остаточных файлов
 main.zip
