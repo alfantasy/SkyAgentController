@@ -49,8 +49,6 @@ class MainLogger:
             }
         }
 
-        self.check_rotation()
-
     def __obj_logger__(self):
         return self.object_logger
     

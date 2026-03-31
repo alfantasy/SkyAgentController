@@ -17,7 +17,7 @@ router = APIRouter(
     tags=['Utils']
 )
 
-ALLOWED_COMMANDS = ["dir", "ls", "ping", "netstat", "ipconfig", "ifconfig", "systeminfo", "whoami"]
+ALLOWED_COMMANDS = ["dir", "ls", "ping", "netstat", "ipconfig", "ifconfig", "systeminfo", "whoami", "ssh"]
 
 class ScreenshotRequest(BaseModel):
     monitor_id: int = 1
@@ -83,7 +83,7 @@ async def execute_command(req: TerminalRequest, token: str = Depends(verify_acce
     command = req.command
     base_cmd = command.split()[0].lower()
     if base_cmd not in ALLOWED_COMMANDS:
-        return {"status": "ERROR", "message": f"Команда '{base_cmd}' запрещена службой безопасности."}
+        return {"status": "ERROR", "message": f"Команда '{base_cmd}' из соображений безопасности выполнения терминальных операнд. Поддерживаемые команды: [{', '.join(ALLOWED_COMMANDS)}]"}
 
     try:
         # 2. Выполнение (ограничение 10 секунд)
