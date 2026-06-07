@@ -169,10 +169,38 @@ class System:
                 "arch": platform.machine(),
                 "uptime": f"{hours}h {minutes}m"
             },
+            "drives": self.get_all_drives(),
             "temp": self.format_temp()            
         }
         return data_reject
     
+
+    def get_all_drives(self):
+        drives = []
+        for part in psutil.disk_partitions():
+            # Игнорируем CD-ROM и диски без файловой системы, чтобы не вылетало ошибок
+            if not part.fstype:
+                continue
+                
+            try:
+                usage = psutil.disk_usage(part.mountpoint)
+                drives.append({
+                    "device": part.device,
+                    "mountpoint": part.mountpoint,
+                    "fstype": part.fstype,
+                    "total_int": usage.total,
+                    "total_percent": usage.percent,
+                    "available_int": usage.free,
+                    "usage_int": usage.used,
+                    # Добавим для удобства форматированные значения или статус
+                    "status": "active"
+                })
+            except (PermissionError, OSError):
+                # Это на случай заблокированных дисков или пустых картридеров
+                continue
+                
+        return drives
+
     def get_monitors(self):
         with mss.mss() as sct:
             monitors = []
@@ -202,3 +230,29 @@ class System:
             
             # Возвращаем байты напрямую с правильным media_type
             return Response(content=buffered.getvalue(), media_type="image/jpeg")
+        
+    def check_admin(self):
+        """Выполнение проверки, является ли авторизированный клиент
+
+        администратором в системе или нет.
+        """
+        sys_platform = platform.system()
+
+        if sys_platform == "Windows":
+            try:
+                # IsUserAnAdmin() возвращает 1, если запущено от админа, и 0 в противном случае
+                import ctypes
+                return ctypes.windll.shell32.IsUserAnAdmin() != 0
+            except Exception:
+                # На случай, если вызов сорвется в специфичном окружении
+                return False
+
+        elif sys_platform == "Linux":
+            try:
+                # На Linux UID или эффективный UID (euid) у root всегда равен 0
+                return os.geteuid() == 0
+            except AttributeError:
+                # Фолбэк на обычный getuid, если euid почему-то недоступен
+                return os.getuid() == 0
+
+        return False

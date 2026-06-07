@@ -13,22 +13,32 @@ def get_master_pub_key():
     return res[0] if res else None
 
 async def verify_hub_request(request: Request, x_hub_signature: str, x_hub_timestamp: str):
+    print("VERIFY_HUB_REQUEST STARTED")
+
+    print("Signature and timestamp return:", x_hub_signature, x_hub_timestamp)
     master_pub_hex = get_master_pub_key()
+    print("Master hub-key return:", master_pub_hex)
     if not master_pub_hex:
         return False
 
     # Проверка окна времени (60 сек)
     if not x_hub_timestamp or abs(int(time.time()) - int(x_hub_timestamp)) > 60:
+        print("Time window expired (verify_hub_request)")
         return False
 
     # Строка: "METHOD|PATH|TIMESTAMP"
     msg = f"{request.method}|{request.url.path}|{x_hub_timestamp}"
+    print("return msg:", msg)
     
     try:
         public_key = ed25519.Ed25519PublicKey.from_public_bytes(bytes.fromhex(master_pub_hex))
         public_key.verify(bytes.fromhex(x_hub_signature), msg.encode('utf-8'))
+        print("MasterHub authorized (verify_hub_request)")
+        print("VERIFY_HUB_REQUEST ENDED")
         return True
     except Exception:
+        print("MasterHub not authorized (verify_hub_request)")
+        print("VERIFY_HUB_REQUEST ENDED WITH ERROR")
         return False
 
 async def verify_access(
@@ -45,8 +55,12 @@ async def verify_access(
 
     # ПУТЬ 2: Проверка подписи (MasterHub -> Standalone)
     if x_master_signature and x_master_timestamp:
+        print("verify_access, return from MasterHub", x_master_signature, x_master_timestamp)
         if await verify_hub_request(request, x_master_signature, x_master_timestamp):
+            print("MasterHub authorized")
             return "master_hub_authorized"
+        else:
+            print("MasterHub not authorized")
 
     raise HTTPException(status_code=401, detail="Access Denied: Invalid Token or Signature")
 
