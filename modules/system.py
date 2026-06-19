@@ -1,4 +1,5 @@
 import platform
+import time
 from fastapi import HTTPException, Response
 import base64, os, uuid, psutil, mss, io
 from PIL import Image
@@ -149,28 +150,117 @@ class System:
                     list_temp.append({"type": rus_type, "device": device, "sensor": sensor, "temp": temp[data_type][device][sensor]})
         return list_temp
 
-    def info_system(self, hours, minutes):
+    def get_ram_info(self):
         ram = psutil.virtual_memory()
+        return {
+            "total": f"{ram.total / (1024**3):.1f}GB",
+            "used": f"{ram.used / (1024**3):.1f}GB",
+            "percent": ram.percent
+        }
+    
+    def get_heavy_processes(self):
+        heavy_processes = []
+        for proc in psutil.process_iter(['pid', 'name', 'cpu_percent', 'memory_percent']):
+            try:
+                heavy_processes.append({
+                    "pid": proc.pid,
+                    "name": proc.name(),
+                    "cpu": f"{proc.cpu_percent()}%",
+                    "ram": f"{proc.memory_percent():.1f}%"  # округлим для красоты
+                })
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                continue
+
+        heavy_processes = sorted(heavy_processes, key=lambda x: float(x['ram'].replace('%', '')), reverse=True)[:5]
+        return heavy_processes
+    
+    def get_services(self):
+        services_list = []
+        if platform.system() == "Windows":
+            import win32service # type: ignore
+            if win32service:
+                try:
+                    access = win32service.SC_MANAGER_ENUMERATE_SERVICE | win32service.SC_MANAGER_CONNECT
+                    scm = win32service.OpenSCManager(None, None, access)
+                    type_filter = win32service.SERVICE_WIN32
+                    state_filter = win32service.SERVICE_STATE_ALL
+                    statuses = win32service.EnumServicesStatusEx(scm, type_filter, state_filter, None)
+                    
+                    for service in statuses:
+                        # 🎯 БРОНЕБОЙНЫЙ ОПРЕДЕЛИТЕЛЬ СТАТУСА:
+                        # В разных версиях pywin32 статус лежит либо в 'ServiceStatusProcess', либо прямо в корне
+                        status_info = service.get('ServiceStatusProcess') or service
+                        current_state = status_info.get('CurrentState')
+
+                        if current_state == win32service.SERVICE_RUNNING:
+                            services_list.append({
+                                "name": service.get('ServiceName', 'Unknown'),
+                                "display": service.get('DisplayName', 'Unknown'),
+                                "status": "RUNNING"
+                            })
+                            
+                    # Опционально: срезаем до первых 20 запущенных, чтобы не перегружать сеть
+                    services_list = services_list[:20]
+                    return services_list
+                except Exception as e:
+                    services_list = [{"error": f"Failed to get Win services: {str(e)}"}]  
+                    return services_list
+
+    def get_autostart_programs(self):
+        autostart_list = []
+        try:
+            import winreg
+            paths = [
+                (winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run"),
+                (winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\Run")
+            ]
+            for hive, path in paths:
+                try:
+                    with winreg.OpenKey(hive, path, 0, winreg.KEY_READ) as key:
+                        for i in range(winreg.QueryInfoKey(key)[1]):
+                            name, val, _ = winreg.EnumValue(key, i)
+                            autostart_list.append({"name": name, "path": val})
+                except FileNotFoundError:
+                    continue
+            return autostart_list
+        except Exception as e:
+            autostart_list = [{"error": f"Failed to get Win autostart: {str(e)}"}]
+            return autostart_list         
+        
+    def get_os_info(self):
+        uptime_seconds = time.time() - psutil.boot_time()
+        hours, remainder = divmod(int(uptime_seconds), 3600)
+        minutes, seconds = divmod(remainder, 60)
+        return {
+            "name": platform.system(),
+            "release": platform.version(),
+            "type_release": platform.release(),
+            "arch": platform.machine(),
+            "uptime": f"{hours}h {minutes}m"
+        }
+    
+    def get_cpu_info(self):
+        return {
+            "model": platform.processor(),
+            "usage": psutil.cpu_percent(interval=1),
+            "cores": psutil.cpu_count(logical=True),
+            "freq": f"{psutil.cpu_freq().current:.0f}MHz" if psutil.cpu_freq() else "N/A"
+        }
+    
+    def info_system(self, choice: list = None):
+        if choice is None:
+            choice = ["cpu", "ram", "os", "drives", "temp", "services", "heavy_processes", "autostart"]
         data_reject = {
-            "cpu": {
-                "model": platform.processor(),
-                "usage": psutil.cpu_percent(interval=1),
-                "cores": psutil.cpu_count(logical=True),
-                "freq": f"{psutil.cpu_freq().current:.0f}MHz" if psutil.cpu_freq() else "N/A"                
-            },
-            "ram": {
-                "total": f"{ram.total / (1024**3):.1f}GB",
-                "used": f"{ram.used / (1024**3):.1f}GB",
-                "percent": ram.percent
-            },
-            "os": {
-                "name": platform.system(),
-                "release": platform.version(),
-                "arch": platform.machine(),
-                "uptime": f"{hours}h {minutes}m"
-            },
-            "drives": self.get_all_drives(),
-            "temp": self.format_temp()            
+            "cpu": self.get_cpu_info() if choice and "cpu" in choice else None,
+            "ram": self.get_ram_info() if choice and "ram" in choice else None,
+            "os": self.get_os_info() if choice and "os" in choice else None,
+            "drives": self.get_all_drives() if choice and "drives" in choice else None,
+            "temp": self.format_temp() if choice and "temp" in choice else None,
+            "unique": {
+                "services": self.get_services() if choice and "services" in choice else None,
+                "heavy_processes": self.get_heavy_processes() if choice and "heavy_processes" in choice else None,
+                "autostart": self.get_autostart_programs() if choice and "autostart" in choice else None
+            }     
         }
         return data_reject
     

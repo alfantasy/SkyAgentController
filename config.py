@@ -10,10 +10,12 @@ import psutil
 from modules.database import Database
 from modules.system import System
 from modules.logger import instance_logger
+from modules.wsmanager import WindowSocketManager
 
 db = Database()
 system = System()
 logger = instance_logger
+wsmanager = WindowSocketManager()
 
 app = FastAPI(openapi_url=False, docs_url=False, redoc_url=False, swagger_ui_oauth2_redirect_url=False)
 
@@ -65,7 +67,7 @@ def configurate():
 
     logger.printinf("Configuring routers...")    
     try:
-        from routers import auth, utils, files, python_executor
+        from routers import auth, utils, files, python_executor, websocket, manipulator_power, notifications
         logger.printinf("Paths to routers configured.")
     except ImportError as e:
         logger.printerr(f"Error importing routers: {e}")
@@ -83,6 +85,9 @@ def configurate():
     app.router.include_router(utils.router)
     app.router.include_router(files.router)
     app.router.include_router(python_executor.router)    
+    app.router.include_router(websocket.router)
+    app.router.include_router(manipulator_power.router)
+    app.router.include_router(notifications.router)
 
     
 

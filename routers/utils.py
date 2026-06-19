@@ -1,25 +1,18 @@
-import asyncio
-import logging
-import sys
-
-from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Request, Response
-from pydantic import BaseModel
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from typing import List, Optional
+from pydantic import BaseModel, Field
 
 from modules.auth import verify_access
-from config import system, db, logger
+from config import system, db, logger, wsmanager
 
-import base64, io, mss, psutil, time, platform
-from PIL import Image
+import platform, subprocess
 
-import subprocess
-import shlex
+from modules.lock_storage import load_lock_state, save_lock_state, verify_password
 
 router = APIRouter(
     prefix='/api/utils',
     tags=['Utils']
 )
-
-active_timers = {}
 
 ALLOWED_COMMANDS = ["dir", "ls", "ping", "netstat", "ipconfig", "ifconfig", "systeminfo", "whoami", "ssh"]
 
@@ -29,53 +22,11 @@ class ScreenshotRequest(BaseModel):
 class TerminalRequest(BaseModel):
     command: str
 
-class TimerBody(BaseModel):
-    delay_seconds: int = 0  # Таймер в секундах (0 — сразу)
-
-def an_execute_command(cmd: list):
-    try:
-        # Запускаем в фоне, не дожидаясь завершения (особенно важно для выключения)
-        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    except Exception as e:
-        print(f"Ошибка выполнения системной команды: {e}")
-
-
-async def delayed_action_task(delay: int, cmd: list, action_type: str):
-    try:
-        if delay > 0:
-            await asyncio.sleep(delay)
-        
-        # Если это нативное выключение Windows, и оно дотерпело до конца,
-        # системная команда всё равно отработает.
-        an_execute_command(cmd)
-    except asyncio.CancelledError:
-        print(f"Фоновый таймер для {action_type} был успешно отменен в бэкенде.")
-    finally:
-        # Чистим за собой словарь при завершении или отмене
-        if action_type in active_timers:
-            del active_timers[action_type]
-
-def start_timer(delay: int, cmd: list, action_type: str):
-    """Хелпер для отмены старой задачи и запуска новой"""
-    # Если какой-то таймер уже тикает — сбрасываем его
-    cancel_internal_timers()
-    
-    # Если это Windows shutdown/reboot, на всякий случай шлем нативную отмену
-    if sys.platform == "win32" and action_type in ["shutdown", "reboot"]:
-        an_execute_command(["shutdown", "/a"])
-
-    # Запускаем таску через asyncio в текущем event loop
-    loop = asyncio.get_event_loop()
-    task = loop.create_task(delayed_action_task(delay, cmd, action_type))
-    active_timers["power_action"] = task
-
-def cancel_internal_timers():
-    """Остановка тасок asyncio"""
-    task = active_timers.get("power_action")
-    if task and not task.done():
-        task.cancel()
-    if "power_action" in active_timers:
-        del active_timers["power_action"]
+class TelemetryRequest(BaseModel):
+    metrics: List[str] = Field(
+        default=["cpu", "ram"], 
+        description="Список системных метрик для сбора с узла"
+    )
 
 @router.get("/ping")
 async def ping_to_device():
@@ -99,21 +50,25 @@ async def make_an_screenshot(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/sysinfo")
-async def get_sys_info(token: str = Depends(verify_access)):
+@router.post("/sysinfo")
+async def get_sys_info(
+    payload: TelemetryRequest = Body(...),
+    token: str = Depends(verify_access)
+):
     try:
-        # Сбор данных о памяти
-        ram = psutil.virtual_memory()
+        # payload.metrics — это как раз твой чистый Python-лист: ['cpu', 'ram', ...]
+        info_system_reject = system.info_system(payload.metrics)
         
-        # Сбор данных об аптайме
-        uptime_seconds = time.time() - psutil.boot_time()
-        hours, remainder = divmod(int(uptime_seconds), 3600)
-        minutes, seconds = divmod(remainder, 60)
-
-        info_system_reject = system.info_system(hours, minutes)
-        return {"status": "OK", "data": info_system_reject, "who_ami": token}
+        return {
+            "status": "OK", 
+            "data": info_system_reject, 
+            "who_ami": token
+        }
     except Exception as e:
-        return {"status": "ERROR", "message": str(e)}
+        return {
+            "status": "ERROR", 
+            "message": str(e)
+        }
     
 @router.get("/os_info")
 async def get_os_info(token: str = Depends(verify_access)):
@@ -191,66 +146,53 @@ async def setup_master(request: Request, payload: dict = Body(...)):
         logger.printerr(f"Error in setup_master: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     
-@router.post("/shutdown")
-async def shutdown_node(body: TimerBody):
-    if sys.platform == "win32":
-        # Если задержка есть, используем нативный таймер Windows (/t) + наш внутренний для синхронизации
-        cmd = ["shutdown", "/s", "/f", "/t", str(body.delay_seconds)] if body.delay_seconds > 0 else ["shutdown", "/s", "/f", "/t", "0"]
-    else:
-        cmd = ["sudo", "shutdown", "-h", "now"]
+current_lock_password: Optional[str] = None
 
-    start_timer(body.delay_seconds, cmd, "shutdown")
-    return {"status": "OK", "message": f"Выключение запланировано через {body.delay_seconds} сек."}
+class LockRequest(BaseModel):
+    message: str = "Доступ заблокирован администратором"
+    unlock_password: Optional[str] = None
 
+@router.post("/lock/windows")
+async def lock_node(req: LockRequest = Body(...), token: str = Depends(verify_access)):
+    # Пишем состояние на диск
+    save_lock_state(is_locked=True, message=req.message, password=req.unlock_password)
+    
+    payload = {
+        "event": "lock_screen",
+        "message": req.message,
+        "has_password": req.unlock_password is not None 
+    }
+    
+    await wsmanager.broadcast(payload)
+    return {"status": "OK", "message": "Команда блокировки отправлена и сохранена"}
 
-@router.post("/reboot")
-async def reboot_node(body: TimerBody):
-    if sys.platform == "win32":
-        cmd = ["shutdown", "/r", "/f", "/t", str(body.delay_seconds)] if body.delay_seconds > 0 else ["shutdown", "/r", "/f", "/t", "0"]
-    else:
-        cmd = ["sudo", "shutdown", "-r", "now"]
+@router.post("/unlock/local")
+async def local_unlock_node(payload: dict = Body(...)):
+    state = load_lock_state()
+    
+    if not state.get("is_locked"):
+        return {"status": "success", "message": "Terminal already unlocked"}
 
-    start_timer(body.delay_seconds, cmd, "reboot")
-    return {"status": "OK", "message": f"Перезагрузка запланирована через {body.delay_seconds} сек."}
+    stored_hash = state.get("password_hash")
+    
+    if stored_hash is None:
+        raise HTTPException(
+            status_code=403, 
+            detail="Локальная разблокировка недоступна. Терминал управляется сервером."
+        )
+        
+    input_password = payload.get("password", "")
+    
+    if verify_password(input_password, stored_hash):
+        # Чистим стейт на диске
+        save_lock_state(is_locked=False, message="", password=None)
+        await wsmanager.broadcast({"event": "unlock_screen"})
+        return {"status": "success"}
+    
+    raise HTTPException(status_code=403, detail="Неверный ключ авторизации")
 
-
-@router.post("/sleep")
-async def sleep_node(body: TimerBody):
-    if sys.platform == "win32":
-        cmd = ["rundll32.exe", "powrprof.dll,SetSuspendState", "0", "1", "0"]
-    else:
-        cmd = ["sudo", "systemctl", "suspend"]
-
-    start_timer(body.delay_seconds, cmd, "sleep")
-    return {"status": "OK", "message": f"Переход в сон запланирован через {body.delay_seconds} сек."}
-
-
-@router.post("/lock")
-async def lock_node():
-    # Блокировка всегда мгновенная, таймер тут не нужен
-    if sys.platform == "win32":
-        an_execute_command(["rundll32.exe", "user32.dll,LockWorkStation"])
-    elif sys.platform == "linux":
-        an_execute_command(["xdg-screensaver", "lock"])
-    else:
-        raise HTTPException(status_code=500, detail="Unsupported OS")
-    return {"status": "OK", "message": "Сессия заблокирована"}
-
-
-@router.post("/cancel")
-async def cancel_actions():
-    """ЭНДПОИНТ ОТМЕНЫ: тушит все запланированные таймеры"""
-    # 1. Гасим внутренние async-таски (сна, выключения и т.д.)
-    cancel_internal_timers()
-
-    # 2. Если ОС Windows, принудительно шлем системную отмену (на случай, если висел нативный shutdown /t)
-    if sys.platform == "win32":
-        try:
-            # shutdown /a вернет ошибку, если таски не было, поэтому перехватываем через Popen
-            res = subprocess.run(["shutdown", "/a"], capture_output=True, text=True)
-            if "Не удается отменить завершение работы системы" in res.stderr:
-                pass # Игнорируем, если отменять было нечего
-        except Exception as e:
-            print(f"Ошибка вызова shutdown /a: {e}")
-
-    return {"status": "OK", "message": "Все запланированные действия успешно отменены"}
+@router.post("/unlock")
+async def unlock_node(token: str = Depends(verify_access)):
+    save_lock_state(is_locked=False, message="", password=None)
+    await wsmanager.broadcast({"event": "unlock_screen"})
+    return {"status": "OK", "message": "Команда разблокировки отправлена"}
